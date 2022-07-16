@@ -100,10 +100,10 @@ imageIndex = 0
 
 road = pygame.image.load(os.path.join("../images",images[imageIndex]))
 
-
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
 paper = (115,141,138)
+
 
 #utility functions
 def menuButton( menuText, menuCenter, menuSize ) :
@@ -123,18 +123,32 @@ def setV4L2( ctrl, value ) :
 def getV4L2( ctrl ) :
     ret = subprocess.run(shlex.split(f"v4l2-ctl -d {videoDev} --get-ctrl {ctrl}"),capture_output=True, text=True)
     if ret.returncode == 0 :
-        return ret.stdout.split(" ")[1]
+        return ret.stdout.split(" ")[1].strip()
     else :
         return ""
 
+def getBackground() :
+    # get average background surface
+    bg = []
+    for i in range(0,10): 
+        bg.append(cam.get_image(background))
+    pygame.transform.average_surfaces(bg,background)
+    # creates 'background' == average background surface over five frames
+    
+    # the average color of the average surface. Used for the 'w' background color
+    paper = pygame.transform.average_color(background)
+
+    return
 
 # set exposure, focus, white balance
 # ...since it's probably going to shooting against a green-screen,
 # ...auto whitebalance probably isn't going to work
+whiteErr=setV4L2( "white_balance_temperature_auto",0 )
 whiteErr=setV4L2( "white_balance_temperature",whiteBalance )
 exposeErr=setV4L2( "exposure_auto",3)
 focusErr=setV4L2( "focus_auto",1)
 print(f"white balance: {whiteErr}, exposure: {exposeErr}, focus: {focusErr}")
+zoom = 100
 
 going = True
 while going:
@@ -144,16 +158,23 @@ while going:
             going = False
 
         if (e.type == KEYUP and e.key == K_e):
-            print ("Exposure:")
-            exposure = subprocess.check_output(shlex.split('uvcdynctrl --get="Exposure (Absolute)"'))
-            print (exposure)
+            exposure = getV4L2( "exposure_absolute" )
+            focus = getV4L2( "focus_absolute" )
+            print (f"Exposure: {exposure}, Focus: {focus}")
 
-            print ("Focus")
-            focus = subprocess.check_output(shlex.split('uvcdynctrl --get="Focus (absolute)"'))
-            print (focus)
-
+        if (e.type == KEYUP and e.key == K_PERIOD):
+            zoom += 2
+            print (zoom)
+            setV4L2( "zoom_absolute",zoom)
+        if (e.type == KEYUP and e.key == K_COMMA):
+            zoom -= 2
+            if ( zoom < 100 ):
+                zoom = 100
+            print (zoom)
+            setV4L2( "zoom_absolute",zoom)
 
     image = cam.get_image()
+    #image = pygame.transform.flip(cam.get_image(),True,False)
     lcd.blit(image, (0,0))
     lcd.blit(menu1, (0,0))
     pygame.display.flip()
@@ -171,29 +192,25 @@ if not focusErr :
     setV4L2( "focus_absolute", focus )
     setV4L2( "focus_auto", 0)
 
+# get the average background surface, and the average color of the average surface
+# also called using 'z' command
+getBackground()
 
-# get background
-going = True
-bg = []
-for i in range(0,5): 
-    bg.append(cam.get_image(background))
-pygame.transform.average_surfaces(bg,background)
-
-paper = pygame.transform.average_color(background)
-
-backgroundType = 0
 th = 25
+diffColor = (0,255,0)
+
+# flags
+backgroundType = 0
 multiImage = False
 alphaBlend = False
-diffColor = (0,255,0)
 outlineImage = False
 imageInverted = False
 
 # display effects
+going = True
 while going:
-    events = pygame.event.get()
-    for e in events:
-        if (e.type is MOUSEBUTTONDOWN):
+    for e in pygame.event.get():
+        if (e.type == MOUSEBUTTONDOWN):
             pos = pygame.mouse.get_pos()
             crect.center = pos
             #ccolor = pygame.transform.average_color(image, crect)
@@ -276,15 +293,32 @@ while going:
             imageCaptured = True
             capture.blit(thresholded, (0,0))
 
-        if (e.type == KEYUP and e.key == K_e):
-            print ("Exposure:")
-            subprocess.call(shlex.split('uvcdynctrl --get="Exposure (Absolute)"'))
+        if (e.type == KEYUP and e.key == K_z):
+            getBackground()
 
 
     # setup surfaces
-    image = cam.get_image()
-    pygame.transform.threshold(thresholded,image,(0,255,0),(th,th,th),diffColor,2,background,True)
+    #thresholded.blit(image, (0,0))
+    # threshold(dest_surf, surf, search_color, threshold=(0,0,0,0), set_color=(0,0,0,0), set_behavior=1, search_surf=None, inverse_set=False)
+    # pygame.transform.threshold(thresholded,image,(0,255,0),(th,th,th),diffColor,2,background,True)
+    # pygame.transform.threshold(thresholded,image,(96,176,112),(th,th,th),(0,255,0),1,None,True)
 
+    #pygame.transform.threshold(thresholded,image,None,(th,th,th),(255,0,0),1,background,True)
+    # sure seems like this is backward and shouldn't work:
+    # the way I read the docs, a match between background and image should copy pixels
+    # from background to thresholded, but instead it's copying image to thresholded
+    # 'False' says copy the pixels that are different
+    # also, it's working different that when first written.  Didn't need to fill the thresholded
+    # surface with diffColor for example.
+    
+    # camera image with transparent background == thresholded
+    #... diffColor??
+    #image = pygame.transform.flip(cam.get_image(),True,False)
+    image = cam.get_image()
+    thresholded.fill(diffColor)
+    pygame.transform.threshold(thresholded,background,None,(th,th,th),None,2,image,False)
+
+    # color tracking, two colors/modes
     if (mode1 > 0) :
         mask = pygame.mask.from_threshold(image, ccolor1, (20,20,20))
         connected = mask.connected_component()
@@ -307,10 +341,13 @@ while going:
                 lastPos2 = coord
 
 
-    # back: black, white, or image
+    # background: black, white, or image
+    #... why multiImage check?  Because means don't reset the background for each frame, just blit the layers on top
+    #... so multiImage is a variation on backgroundType... "accumulate"
+    #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
     if ( not multiImage):
         if backgroundType == 0:
-            #lcd.fill((255,255,255))
+            # fill with average color of background
             lcd.fill(paper)
         elif backgroundType == 1:
             lcd.fill((0,0,0))
@@ -324,9 +361,11 @@ while going:
         lcd.blit(vpath2, (0,0))
 
     # middle: threshold mask image
+    #... Huh? why.... the capture surface is the thresholded surface...
     if (imageCaptured) :
         lcd.blit(capture, (0,0))
 
+    # display camera image "thresholded"
     if (outlineImage) :
         laplace = pygame.transform.laplacian(thresholded)
         if backgroundType == 0:
@@ -335,6 +374,7 @@ while going:
             outlineEdge = (255,255,255)
         else : 
             outlineEdge = (255,0,0)
+        outline.fill((0,0,0))
         pygame.transform.threshold(outline,laplace, (0,0,0), (40,40,40), outlineEdge, 1)
         #pygame.transform.threshold(outline,image, (0,0,0), (80,80,80), (5,5,5), 1)
         outline.set_colorkey((0,0,0))
@@ -347,7 +387,7 @@ while going:
     else:
         lcd.blit(thresholded, (0,0))
 
-    # top: mask from color
+    # foreground sprites:
     if (mode1 == 1) :
         lcd.blit(vpath1, (0,0))
     if (mode2 == 1) :
@@ -357,7 +397,7 @@ while going:
 
 cam.stop()
 # set exposure, focus, white balance
-subprocess.call(shlex.split('uvcdynctrl --set="White Balance Temperature, Auto" 1'))
-subprocess.call(shlex.split('uvcdynctrl --set="Exposure, Auto" 3'))
-subprocess.call(shlex.split('uvcdynctrl --set="Focus, Auto" 1'))
+#subprocess.call(shlex.split('uvcdynctrl --set="White Balance Temperature, Auto" 1'))
+#subprocess.call(shlex.split('uvcdynctrl --set="Exposure, Auto" 3'))
+#subprocess.call(shlex.split('uvcdynctrl --set="Focus, Auto" 1'))
 
