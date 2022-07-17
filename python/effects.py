@@ -9,6 +9,8 @@ import PIL.ImageOps
 #import antigravity
 import shlex, subprocess
 
+import glob
+
 from configparser import ConfigParser
 
 # read config
@@ -18,6 +20,7 @@ width = config.getint('Effects','width',fallback=800)
 height = config.getint('Effects','height',fallback=600)
 videoDev = config.get('Effects','videoDev',fallback='/dev/video0')
 whiteBalance = config.getint('Effects','whiteBalance',fallback=5500)
+imageDirectory = config.get('Effects','imageDirectory',fallback='../images')
 
 pygame.init()
 
@@ -71,7 +74,9 @@ whiteSurf = pygame.surface.Surface(res)
 whiteSurf.fill((255,255,255))
 
 background = pygame.surface.Surface(res)
+backgroundColor = (0,0,0)
 
+# tracking surfaces
 vpath1 = pygame.surface.Surface(res)
 vpath1.set_colorkey((0,0,0))
 ccolor1 = (0,0,0)
@@ -84,25 +89,18 @@ ccolor2 = (0,0,0)
 lastPos2 = (0,0)
 mode2 = 0
 
-# background images
-images = [
-    'corner800.jpg',
-    'Brick-800.jpg',
-    'stream800.jpg',
-    'Studio-3-800.jpg',
-    'Studio-4-800.jpg',
-    'Studio-5-800.jpg',
-    'Studios-1-800.jpg',
-    'Tunnel-1-800.jpg',
-    'Decay-1-800.jpg'
-    ]
+# fade out surface
+fader = pygame.surface.Surface(res)
+fader.fill((0,0,0))
+fader.set_alpha(1)
+
+# display background images
+images = glob.glob(imageDirectory+"/*.jpg")
 imageIndex = 0
 
-road = pygame.image.load(os.path.join("../images",images[imageIndex]))
 
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
-paper = (115,141,138)
 
 
 #utility functions
@@ -136,9 +134,21 @@ def getBackground() :
     # creates 'background' == average background surface over five frames
     
     # the average color of the average surface. Used for the 'w' background color
-    paper = pygame.transform.average_color(background)
+    global backgroundColor 
+    backgroundColor = pygame.transform.average_color(background)
+    print(f"backgroundColor: {backgroundColor}")
 
     return
+
+def getdisplayBackground(dir=1) :
+    global imageIndex
+    imageIndex += dir
+    if (imageIndex >= len(images)):
+        imageIndex = 0
+    if (imageIndex < 0) :
+        imageIndex = len(images) -1
+    return pygame.transform.smoothscale(pygame.image.load(images[imageIndex]),res)
+
 
 # set exposure, focus, white balance
 # ...since it's probably going to shooting against a green-screen,
@@ -192,9 +202,12 @@ if not focusErr :
     setV4L2( "focus_absolute", focus )
     setV4L2( "focus_auto", 0)
 
-# get the average background surface, and the average color of the average surface
+# get the camera average background surface, and the average color of the average surface
 # also called using 'z' command
 getBackground()
+
+# display background
+displayBackground = getdisplayBackground(0)
 
 th = 25
 diffColor = (0,255,0)
@@ -218,15 +231,9 @@ while going:
             print (ccolor)
 
         if (e.type == KEYUP and e.key == K_RIGHT):
-            imageIndex += 1
-            if (imageIndex >= len(images)):
-                imageIndex = 0
-            road = pygame.image.load(images[imageIndex])
+            displayBackground = getdisplayBackground(1)
         if (e.type == KEYUP and e.key == K_LEFT):
-            imageIndex -= 1
-            if (imageIndex < 0) :
-                imageIndex = len(images) -1
-            road = pygame.image.load(images[imageIndex])
+            displayBackground = getdisplayBackground(-1)
 
         if (e.type == KEYUP and e.key == K_KP7):
             ccolor1 = ccolor
@@ -248,6 +255,7 @@ while going:
             vpath2.fill((0,0,0))
             imageCaptured = False
             capture.fill((0,255,0))
+            multiImage = False
 
         if (e.type == KEYDOWN and e.key == K_ESCAPE):
             going = False
@@ -297,38 +305,27 @@ while going:
             getBackground()
 
 
-    # setup surfaces
-    #thresholded.blit(image, (0,0))
-    # threshold(dest_surf, surf, search_color, threshold=(0,0,0,0), set_color=(0,0,0,0), set_behavior=1, search_surf=None, inverse_set=False)
-    # pygame.transform.threshold(thresholded,image,(0,255,0),(th,th,th),diffColor,2,background,True)
-    # pygame.transform.threshold(thresholded,image,(96,176,112),(th,th,th),(0,255,0),1,None,True)
 
-    #pygame.transform.threshold(thresholded,image,None,(th,th,th),(255,0,0),1,background,True)
-    # sure seems like this is backward and shouldn't work:
-    # the way I read the docs, a match between background and image should copy pixels
-    # from background to thresholded, but instead it's copying image to thresholded
-    # 'False' says copy the pixels that are different
-    # also, it's working different that when first written.  Didn't need to fill the thresholded
-    # surface with diffColor for example.
-    
-    # camera image with transparent background == thresholded
-    #... diffColor??
-    #image = pygame.transform.flip(cam.get_image(),True,False)
+    # get camera image
     image = cam.get_image()
-    thresholded.fill(diffColor)
-    pygame.transform.threshold(thresholded,background,None,(th,th,th),None,2,image,False)
 
     # color tracking, two colors/modes
     if (mode1 > 0) :
         mask = pygame.mask.from_threshold(image, ccolor1, (20,20,20))
         connected = mask.connected_component()
+        # fade the current path
+        vpath1.blit(fader,(0,0))
         if connected.count() > 15:
             coord = connected.centroid()
+            trackRect = connected.get_bounding_rects()
             if lastPos1 == (0,0) :
                 lastPos1 = coord
             else :
                 pygame.draw.line(vpath1, ccolor1, lastPos1, coord, 5)
                 lastPos1 = coord
+        else :
+            lastPos1 = (0,0)
+
     if (mode2 > 0) :
         mask = pygame.mask.from_threshold(image, ccolor2, (20,20,20))
         connected = mask.connected_component()
@@ -341,18 +338,19 @@ while going:
                 lastPos2 = coord
 
 
-    # background: black, white, or image
+    # background layer: black, white, or image
     #... why multiImage check?  Because means don't reset the background for each frame, just blit the layers on top
     #... so multiImage is a variation on backgroundType... "accumulate"
     #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
     if ( not multiImage):
         if backgroundType == 0:
             # fill with average color of background
-            lcd.fill(paper)
+            lcd.fill(backgroundColor)
         elif backgroundType == 1:
             lcd.fill((0,0,0))
         elif backgroundType == 2:
-            lcd.blit(road, (0,0))
+            lcd.blit(displayBackground, (0,0))
+
 
     # background sprites:
     if (mode1 == 2) :
@@ -360,12 +358,28 @@ while going:
     if (mode2 == 2) :
         lcd.blit(vpath2, (0,0))
 
-    # middle: threshold mask image
-    #... Huh? why.... the capture surface is the thresholded surface...
+
+    # middle: 'snapped' image
     if (imageCaptured) :
         lcd.blit(capture, (0,0))
 
-    # display camera image "thresholded"
+
+    # camera image layer with transparent background
+    #
+    # pygame.transfrom.threshold(dest_surf, surf, search_color, threshold, set_color, behavior, search_surface, inverse)
+    # The documentation doesn't make sense to me:
+    #   "If the optional 'search_surf' surface is given, it is used to threshold against rather than the specified 'set_color'."
+    #   ...shouldn't that be threshold against 'search_color' not 'set_color'?
+    #   "set_behavior=1 (default). Pixels in dest_surface will be changed to 'set_color'."
+    #   "set_behavior=2 pixels set in 'dest_surf' will be from 'surf'."
+    #   ...is not the way works when using search_surface
+    #   The pixels copied to dest come from search_surf, not from surf
+    #
+    #... diffColor??
+    thresholded.fill(diffColor)
+    #image = pygame.transform.flip(cam.get_image(),True,False)
+    pygame.transform.threshold(thresholded,background,None,(th,th,th),None,2,image,False)
+
     if (outlineImage) :
         laplace = pygame.transform.laplacian(thresholded)
         if backgroundType == 0:
@@ -386,12 +400,14 @@ while going:
         lcd.blit(inverted, (0,0))
     else:
         lcd.blit(thresholded, (0,0))
+        
 
     # foreground sprites:
     if (mode1 == 1) :
         lcd.blit(vpath1, (0,0))
     if (mode2 == 1) :
         lcd.blit(vpath2, (0,0))
+
 
     pygame.display.flip()
 
