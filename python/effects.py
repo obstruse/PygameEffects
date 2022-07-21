@@ -8,6 +8,7 @@ from PIL import Image
 import PIL.ImageOps
 #import antigravity
 import shlex, subprocess
+import time
 
 import glob
 
@@ -88,11 +89,12 @@ vpath2.set_colorkey((0,0,0))
 ccolor2 = (0,0,0)
 lastPos2 = (0,0)
 mode2 = 0
+eyeBall = pygame.image.load("../images/eye.jpg")
 
 # fade out surface
 fader = pygame.surface.Surface(res)
 fader.fill((0,0,0))
-fader.set_alpha(1)
+fader.set_alpha(10)
 
 # display background images
 images = glob.glob(imageDirectory+"/*.jpg")
@@ -160,6 +162,10 @@ focusErr=setV4L2( "focus_auto",1)
 print(f"white balance: {whiteErr}, exposure: {exposeErr}, focus: {focusErr}")
 zoom = 100
 
+# throttle
+#timer = pygame.time.Clock()
+#timer.tick(10)
+
 going = True
 while going:
     events = pygame.event.get()
@@ -171,6 +177,15 @@ while going:
             exposure = getV4L2( "exposure_absolute" )
             focus = getV4L2( "focus_absolute" )
             print (f"Exposure: {exposure}, Focus: {focus}")
+
+        if (e.type == KEYUP and e.key == K_UP):
+            whiteBalance += 100
+            setV4L2("white_balance_temperature",whiteBalance )
+            whiteBalance = int(getV4L2("white_balance_temperature"))
+        if (e.type == KEYUP and e.key == K_DOWN):
+            whiteBalance -= 100
+            setV4L2("white_balance_temperature",whiteBalance )
+            whiteBalance = int(getV4L2("white_balance_temperature"))
 
         if (e.type == KEYUP and e.key == K_PERIOD):
             zoom += 2
@@ -218,17 +233,23 @@ multiImage = False
 alphaBlend = False
 outlineImage = False
 imageInverted = False
+streamCapture = False
+
 
 # display effects
 going = True
 while going:
     for e in pygame.event.get():
         if (e.type == MOUSEBUTTONDOWN):
-            pos = pygame.mouse.get_pos()
-            crect.center = pos
-            #ccolor = pygame.transform.average_color(image, crect)
-            ccolor = pygame.transform.average_color(lcd, crect)
-            print (ccolor)
+            if pygame.mouse.get_pressed()[2] :
+                streamCapture = not streamCapture
+                print("left button")
+            else :
+                pos = pygame.mouse.get_pos()
+                crect.center = pos
+                #ccolor = pygame.transform.average_color(image, crect)
+                ccolor = pygame.transform.average_color(lcd, crect)
+                print (ccolor)
 
         if (e.type == KEYUP and e.key == K_RIGHT):
             displayBackground = getdisplayBackground(1)
@@ -317,7 +338,6 @@ while going:
         vpath1.blit(fader,(0,0))
         if connected.count() > 15:
             coord = connected.centroid()
-            trackRect = connected.get_bounding_rects()
             if lastPos1 == (0,0) :
                 lastPos1 = coord
             else :
@@ -327,20 +347,28 @@ while going:
             lastPos1 = (0,0)
 
     if (mode2 > 0) :
-        mask = pygame.mask.from_threshold(image, ccolor2, (20,20,20))
-        connected = mask.connected_component()
-        if connected.count() > 15:
-            coord = connected.centroid()
-            if lastPos2 == (0,0) :
-                lastPos2 = coord
-            else :
-                pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
-                lastPos2 = coord
+        mask = pygame.mask.from_threshold(image, ccolor2, (30,30,30))
+        connectedList = mask.connected_components(minimum=15)
+        #vpath2.blit(fader,(0,0))
+        #if connected.count() > 15:
+        vpath2.fill((0,0,0))
+        for connected in connectedList :
+            #coord = connected.centroid()
+            trackRect = connected.get_bounding_rects()[0]
+            #print (f"width: {trackRect.width} height: {trackRect.height}")
+            vpath2.blit(pygame.transform.smoothscale(eyeBall, (trackRect.width, trackRect.height)),trackRect)
+            #vpath2.blit(pygame.transform.smoothscale(image, (trackRect.width, trackRect.height)),trackRect)
+            #vpath2.fill(ccolor2, trackRect)
+        #if lastPos2 == (0,0) :
+        #        lastPos2 = coord
+        #    else :
+        #        pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
+        #        lastPos2 = coord
 
 
     # background layer: black, white, or image
-    #... why multiImage check?  Because means don't reset the background for each frame, just blit the layers on top
-    #... so multiImage is a variation on backgroundType... "accumulate"
+    #... why multiImage check?  Because multiImage means don't reset the background for each frame, just blit the layers on top
+    #... multiImage is a variation on backgroundType... "accumulate"
     #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
     if ( not multiImage):
         if backgroundType == 0:
@@ -375,7 +403,7 @@ while going:
     #   ...is not the way works when using search_surface
     #   The pixels copied to dest come from search_surf, not from surf
     #
-    #... diffColor??
+    #... diffColor, the transparent color -- normally green, but black for alphablend 
     thresholded.fill(diffColor)
     #image = pygame.transform.flip(cam.get_image(),True,False)
     pygame.transform.threshold(thresholded,background,None,(th,th,th),None,2,image,False)
