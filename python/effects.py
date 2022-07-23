@@ -26,7 +26,7 @@ imageDirectory = config.get('Effects','imageDirectory',fallback='../images')
 pygame.init()
 
 res = (width,height)
-font = pygame.font.Font(None, 30)
+font = pygame.font.Font(None, 25)
 
 WHITE = (255,255,255)
 BLACK = (0,0,0)
@@ -52,9 +52,10 @@ thresholded.set_colorkey((0,255,0))
 # menu surfaces
 menu1 = pygame.surface.Surface(res)
 menu1.set_colorkey((0,0,0))
-menu1Text = font.render('Set Focus, White Balance, Exposure',True,WHITE)
+menu1Text = font.render('Set Focus,White Balance,Exposure',True,WHITE)
 menu1TextPos = menu1Text.get_rect(center=(width/2,height/2))
 menu1.blit(menu1Text, menu1TextPos)
+pygame.Rect.inflate_ip(menu1TextPos, 25, 25)
 pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
 
 menu2 = pygame.surface.Surface(res)
@@ -89,7 +90,7 @@ vpath2.set_colorkey((0,0,0))
 ccolor2 = (0,0,0)
 lastPos2 = (0,0)
 mode2 = 0
-eyeBall = pygame.image.load("../images/eye.jpg")
+eyeBall = pygame.image.load("../images/blink/000.png")
 
 # fade out surface
 fader = pygame.surface.Surface(res)
@@ -163,13 +164,15 @@ print(f"white balance: {whiteErr}, exposure: {exposeErr}, focus: {focusErr}")
 zoom = 100
 
 # throttle
-#timer = pygame.time.Clock()
-#timer.tick(10)
+timer = pygame.time.Clock()
+
 
 going = True
 while going:
     events = pygame.event.get()
     for e in events:
+        if (e.type == MOUSEBUTTONDOWN):
+            going = False
         if (e.type == KEYUP and e.key == K_SPACE):
             going = False
 
@@ -219,13 +222,20 @@ if not focusErr :
 
 # get the camera average background surface, and the average color of the average surface
 # also called using 'z' command
-getBackground()
+# ... actually I think it better to not do it here, only use 'z' command
+#getBackground()
 
 # display background
 displayBackground = getdisplayBackground(0)
 
 th = 25
 diffColor = (0,255,0)
+
+# streamCapture
+fileNum = 0
+fileDate = ""
+start = 0
+end = 0
 
 # flags
 backgroundType = 0
@@ -348,15 +358,17 @@ while going:
 
     if (mode2 > 0) :
         mask = pygame.mask.from_threshold(image, ccolor2, (30,30,30))
-        connectedList = mask.connected_components(minimum=15)
+        #connectedList = mask.connected_components(minimum=15)
+        connected = mask.connected_component()
         #vpath2.blit(fader,(0,0))
-        #if connected.count() > 15:
         vpath2.fill((0,0,0))
-        for connected in connectedList :
+        #for connected in connectedList :
+        if connected.count() > 15:
             #coord = connected.centroid()
             trackRect = connected.get_bounding_rects()[0]
+            diameter = max(trackRect.width, trackRect.height)
             #print (f"width: {trackRect.width} height: {trackRect.height}")
-            vpath2.blit(pygame.transform.smoothscale(eyeBall, (trackRect.width, trackRect.height)),trackRect)
+            vpath2.blit(pygame.transform.smoothscale(eyeBall, (diameter, diameter)),trackRect)
             #vpath2.blit(pygame.transform.smoothscale(image, (trackRect.width, trackRect.height)),trackRect)
             #vpath2.fill(ccolor2, trackRect)
         #if lastPos2 == (0,0) :
@@ -435,6 +447,23 @@ while going:
         lcd.blit(vpath1, (0,0))
     if (mode2 == 1) :
         lcd.blit(vpath2, (0,0))
+
+    if streamCapture :
+        if fileDate == "" :
+            fileDate = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+            fileNum = 0
+            start = time.time()
+
+        fileName = "../capture/effects%s-%04d.jpg" % (fileDate, fileNum)
+        fileNum = fileNum + 1
+        pygame.image.save(lcd, fileName)
+        timer.tick(20)
+        pygame.draw.rect(lcd,(255,0,0),(0,0, width, height),4)
+
+    if not streamCapture and fileDate != "" :
+        fileDate = ""
+        end = time.time()
+        print(f"secs: {(end-start)}, frames: {fileNum}, FPS: {fileNum/(end-start)}")
 
 
     pygame.display.flip()
