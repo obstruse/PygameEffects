@@ -22,6 +22,9 @@ height = config.getint('Effects','height',fallback=600)
 videoDev = config.get('Effects','videoDev',fallback='/dev/video0')
 whiteBalance = config.getint('Effects','whiteBalance',fallback=5500)
 imageDirectory = config.get('Effects','imageDirectory',fallback='../images')
+captureDirectory = config.get('Effects','captureDirectory',fallback='../capture')
+blinkDirectory = config.get('Effects','blinkDirectory',fallback='../blink')
+FPS = config.getint('Effects','FPS',fallback=20)
 
 pygame.init()
 
@@ -49,7 +52,7 @@ lcd = pygame.display.set_mode(res)
 thresholded = pygame.surface.Surface(res)
 thresholded.set_colorkey((0,255,0))
 
-# menu surfaces
+# menu surface
 menu1 = pygame.surface.Surface(res)
 menu1.set_colorkey((0,0,0))
 menu1Text = font.render('Set Focus,White Balance,Exposure',True,WHITE)
@@ -57,9 +60,6 @@ menu1TextPos = menu1Text.get_rect(center=(width/2,height/2))
 menu1.blit(menu1Text, menu1TextPos)
 pygame.Rect.inflate_ip(menu1TextPos, 25, 25)
 pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
-
-menu2 = pygame.surface.Surface(res)
-menu2.set_colorkey((0,0,0))
 
 inverted = pygame.surface.Surface(res)
 inverted.set_colorkey((255,0,255))
@@ -71,9 +71,6 @@ imageCaptured = False
 
 outline = pygame.surface.Surface(res)
 outline.set_colorkey((0,0,0))
-
-whiteSurf = pygame.surface.Surface(res)
-whiteSurf.fill((255,255,255))
 
 background = pygame.surface.Surface(res)
 backgroundColor = (0,0,0)
@@ -90,15 +87,19 @@ vpath2.set_colorkey((0,0,0))
 ccolor2 = (0,0,0)
 lastPos2 = (0,0)
 mode2 = 0
-eyeBall = pygame.image.load("../images/blink/000.png")
 
 # fade out surface
 fader = pygame.surface.Surface(res)
 fader.fill((0,0,0))
 fader.set_alpha(10)
 
+# blink images
+eyeBall = pygame.image.load(f"{blinkDirectory}/000.png")
+blinks = glob.glob(f"{blinkDirectory}/*.png")
+blinkIndex = 0
+
 # display background images
-images = glob.glob(imageDirectory+"/*.jpg")
+images = glob.glob(f"{imageDirectory}/*.jpg")
 imageIndex = 0
 
 
@@ -107,17 +108,6 @@ ccolor = (0,0,0)
 
 
 #utility functions
-def menuButton( menuText, menuCenter, menuSize ) :
-        mbSurf = font.render(menuText,True,WHITE)
-        mbRect = mbSurf.get_rect(center=menuCenter)
-        menu.blit(mbSurf,mbRect)
-
-        mbRect.size = menuSize
-        mbRect.center = menuCenter
-        pygame.draw.rect(menu,WHITE,mbRect,3)
-
-        return mbRect
-
 def setV4L2( ctrl, value ) :
     return subprocess.run(shlex.split(f"v4l2-ctl -d {videoDev} --set-ctrl {ctrl}={value}"),stderr=subprocess.DEVNULL,stdout=subprocess.DEVNULL).returncode
 
@@ -146,16 +136,13 @@ def getBackground() :
 def getdisplayBackground(dir=1) :
     global imageIndex
     imageIndex += dir
-    if (imageIndex >= len(images)):
-        imageIndex = 0
-    if (imageIndex < 0) :
-        imageIndex = len(images) -1
+    imageIndex = imageIndex % len(images)
     return pygame.transform.smoothscale(pygame.image.load(images[imageIndex]),res)
 
 
 # set exposure, focus, white balance
-# ...since it's probably going to shooting against a green-screen,
-# ...auto whitebalance probably isn't going to work
+# ...since it's probably going to be shooting against a green-screen,
+# ...auto whitebalance isn't going to work
 whiteErr=setV4L2( "white_balance_temperature_auto",0 )
 whiteErr=setV4L2( "white_balance_temperature",whiteBalance )
 exposeErr=setV4L2( "exposure_auto",3)
@@ -185,10 +172,12 @@ while going:
             whiteBalance += 100
             setV4L2("white_balance_temperature",whiteBalance )
             whiteBalance = int(getV4L2("white_balance_temperature"))
+            print(f"whiteBalance: {whiteBalance}")
         if (e.type == KEYUP and e.key == K_DOWN):
             whiteBalance -= 100
             setV4L2("white_balance_temperature",whiteBalance )
             whiteBalance = int(getV4L2("white_balance_temperature"))
+            print(f"whiteBalance: {whiteBalance}")
 
         if (e.type == KEYUP and e.key == K_PERIOD):
             zoom += 2
@@ -238,7 +227,7 @@ start = 0
 end = 0
 
 # flags
-backgroundType = 0
+backgroundType = 3
 multiImage = False
 alphaBlend = False
 outlineImage = False
@@ -297,6 +286,9 @@ while going:
             backgroundType = 1
         if (e.type == KEYUP and e.key == K_i):
             backgroundType = 2
+        if (e.type == KEYUP and e.key == K_g):
+            backgroundType = 3
+
 
         # probably should try adjusting each color threshold?
         if (e.type == KEYUP and e.key == K_KP_MINUS):
@@ -357,6 +349,8 @@ while going:
             lastPos1 = (0,0)
 
     if (mode2 > 0) :
+        timer.tick(FPS)
+
         mask = pygame.mask.from_threshold(image, ccolor2, (30,30,30))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
@@ -368,6 +362,9 @@ while going:
             trackRect = connected.get_bounding_rects()[0]
             diameter = max(trackRect.width, trackRect.height)
             #print (f"width: {trackRect.width} height: {trackRect.height}")
+            blinkIndex += 1
+            blinkIndex = blinkIndex % len(blinks)
+            eyeBall = pygame.image.load(blinks[blinkIndex])
             vpath2.blit(pygame.transform.smoothscale(eyeBall, (diameter, diameter)),trackRect)
             #vpath2.blit(pygame.transform.smoothscale(image, (trackRect.width, trackRect.height)),trackRect)
             #vpath2.fill(ccolor2, trackRect)
@@ -384,12 +381,17 @@ while going:
     #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
     if ( not multiImage):
         if backgroundType == 0:
-            # fill with average color of background
-            lcd.fill(backgroundColor)
+            # fill with white "w"
+            lcd.fill(WHITE)
         elif backgroundType == 1:
-            lcd.fill((0,0,0))
+            # fill with black "b"
+            lcd.fill(BLACK)
         elif backgroundType == 2:
+            # fill with background image "i"
             lcd.blit(displayBackground, (0,0))
+        elif backgroundType == 3:
+            # fill with average color of background "g"
+            lcd.fill(backgroundColor)
 
 
     # background sprites:
@@ -452,12 +454,15 @@ while going:
         if fileDate == "" :
             fileDate = time.strftime("%Y%m%d-%H%M%S", time.localtime())
             fileNum = 0
+            capturePath = os.path.join( captureDirectory, fileDate)
+            print(f"capturePath {capturePath}")
+            os.mkdir(capturePath)
             start = time.time()
 
-        fileName = "../capture/effects%s-%04d.jpg" % (fileDate, fileNum)
+        fileName = f"{capturePath}/effects{fileDate}-{fileNum:04d}.jpg"
         fileNum = fileNum + 1
         pygame.image.save(lcd, fileName)
-        timer.tick(20)
+        timer.tick(FPS)
         pygame.draw.rect(lcd,(255,0,0),(0,0, width, height),4)
 
     if not streamCapture and fileDate != "" :
