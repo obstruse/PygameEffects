@@ -8,7 +8,7 @@
             "name": "Python: effects.py",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/effects.py",
+            "program": "${workspaceFolder}/python/effects.py",
             "console": "integratedTerminal",
             "justMyCode": true
         }

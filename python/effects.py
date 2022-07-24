@@ -14,6 +14,9 @@ import glob
 
 from configparser import ConfigParser
 
+# change to the python directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # read config
 config = ConfigParser()
 config.read('config.ini')
@@ -103,9 +106,9 @@ blinkIndex = 0
 print(blinks)
 
 # display background images
-images = glob.glob(f"{imageDirectory}/*.jpg")
+images = sorted(glob.glob(f"{imageDirectory}/*.jpg"), key=str.lower)
 imageIndex = 0
-
+print(images)
 
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
@@ -138,10 +141,25 @@ def getBackground() :
     return
 
 def getdisplayBackground(dir=1) :
+    # background image scaled so that screen is filled, no distortion
     global imageIndex
     imageIndex += dir
     imageIndex = imageIndex % len(images)
-    return pygame.transform.smoothscale(pygame.image.load(images[imageIndex]),res)
+    rawImage = pygame.image.load(images[imageIndex])
+    w, h = rawImage.get_size()
+    wScaled = width
+    hScaled = height
+    if w/h > width/height :
+        # a wide image
+        wScaled = int(w/h * height)
+    else :
+        # a narrow image
+        hScaled = int(h/w * width)
+
+    scaledImage = pygame.transform.smoothscale(rawImage,(wScaled,hScaled))
+    scaledRect  = scaledImage.get_rect(center=(width/2, height/2))
+
+    return scaledImage, scaledRect
 
 
 # set exposure, focus, white balance
@@ -219,7 +237,7 @@ if not focusErr :
 #getBackground()
 
 # display background
-displayBackground = getdisplayBackground(0)
+displayBackground, displayBackgroundRect = getdisplayBackground(0)
 
 th = 25
 diffColor = (0,255,0)
@@ -255,9 +273,9 @@ while going:
                 print (ccolor)
 
         if (e.type == KEYUP and e.key == K_RIGHT):
-            displayBackground = getdisplayBackground(1)
+            displayBackground, displayBackgroundRect = getdisplayBackground(1)
         if (e.type == KEYUP and e.key == K_LEFT):
-            displayBackground = getdisplayBackground(-1)
+            displayBackground, displayBackgroundRect = getdisplayBackground(-1)
 
         if (e.type == KEYUP and e.key == K_KP7):
             ccolor1 = ccolor
@@ -353,8 +371,6 @@ while going:
             lastPos1 = (0,0)
 
     if (mode2 > 0) :
-        timer.tick(FPS)
-
         mask = pygame.mask.from_threshold(image, ccolor2, (50,50,50))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
@@ -392,7 +408,7 @@ while going:
             lcd.fill(BLACK)
         elif backgroundType == 2:
             # fill with background image "i"
-            lcd.blit(displayBackground, (0,0))
+            lcd.blit(displayBackground, displayBackgroundRect)
         elif backgroundType == 3:
             # fill with average color of background "g"
             lcd.fill(backgroundColor)
