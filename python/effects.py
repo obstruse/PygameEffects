@@ -45,8 +45,11 @@ cam = pygame.camera.Camera(videoDev,res,"RGB")
 cam.start()
 
 # create surfaces
+# display surface
 #lcd = pygame.display.set_mode(res,pygame.FULLSCREEN)
 lcd = pygame.display.set_mode(res)
+# place to save lcd without the red 'capture' box
+lcdSave = pygame.surface.Surface(res)
 
 # edge detect surface
 thresholded = pygame.surface.Surface(res)
@@ -95,8 +98,9 @@ fader.set_alpha(10)
 
 # blink images
 eyeBall = pygame.image.load(f"{blinkDirectory}/000.png")
-blinks = glob.glob(f"{blinkDirectory}/*.png")
+blinks = sorted(glob.glob(f"{blinkDirectory}/*.png"))
 blinkIndex = 0
+print(blinks)
 
 # display background images
 images = glob.glob(f"{imageDirectory}/*.jpg")
@@ -351,7 +355,7 @@ while going:
     if (mode2 > 0) :
         timer.tick(FPS)
 
-        mask = pygame.mask.from_threshold(image, ccolor2, (30,30,30))
+        mask = pygame.mask.from_threshold(image, ccolor2, (50,50,50))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
         #vpath2.blit(fader,(0,0))
@@ -450,6 +454,12 @@ while going:
     if (mode2 == 1) :
         lcd.blit(vpath2, (0,0))
 
+    if not streamCapture and fileDate != "" :
+        fileDate = ""
+        end = time.time()
+        print(f"secs: {(end-start)}, frames: {fileNum}, FPS: {fileNum/(end-start)}")
+
+    # display/stream capture
     if streamCapture :
         if fileDate == "" :
             fileDate = time.strftime("%Y%m%d-%H%M%S", time.localtime())
@@ -463,15 +473,12 @@ while going:
         fileNum = fileNum + 1
         pygame.image.save(lcd, fileName)
         timer.tick(FPS)
+        lcdSave.blit(lcd, (0,0))
         pygame.draw.rect(lcd,(255,0,0),(0,0, width, height),4)
-
-    if not streamCapture and fileDate != "" :
-        fileDate = ""
-        end = time.time()
-        print(f"secs: {(end-start)}, frames: {fileNum}, FPS: {fileNum/(end-start)}")
-
-
-    pygame.display.flip()
+        pygame.display.flip()
+        lcd.blit(lcdSave,(0,0))
+    else:
+        pygame.display.flip()
 
 cam.stop()
 # set exposure, focus, white balance
