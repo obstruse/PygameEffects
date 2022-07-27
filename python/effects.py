@@ -24,7 +24,7 @@ width = config.getint('Effects','width',fallback=800)
 height = config.getint('Effects','height',fallback=600)
 videoDev = config.get('Effects','videoDev',fallback='/dev/video0')
 whiteBalance = config.getint('Effects','whiteBalance',fallback=5500)
-imageDirectory = config.get('Effects','imageDirectory',fallback='../images')
+backgroundDirectory = config.get('Effects','backgroundDirectory',fallback='../background')
 captureDirectory = config.get('Effects','captureDirectory',fallback='../capture')
 blinkDirectory = config.get('Effects','blinkDirectory',fallback='../blink')
 FPS = config.getint('Effects','FPS',fallback=20)
@@ -54,9 +54,12 @@ lcd = pygame.display.set_mode(res)
 # place to save lcd without the red 'capture' box
 lcdSave = pygame.surface.Surface(res)
 
-# edge detect surface
-thresholded = pygame.surface.Surface(res)
-thresholded.set_colorkey((0,255,0))
+# raw camera surface
+camImage = pygame.surface.Surface(res)
+
+# transparent camera surface
+transparent = pygame.surface.Surface(res)
+transparent.set_colorkey((0,255,0))
 
 # menu surface
 menu1 = pygame.surface.Surface(res)
@@ -75,6 +78,7 @@ capture.fill((0,255,0))
 capture.set_colorkey((0,255,0))
 imageCaptured = False
 
+# edge detect surface
 outline = pygame.surface.Surface(res)
 outline.set_colorkey((0,0,0))
 
@@ -99,16 +103,15 @@ fader = pygame.surface.Surface(res)
 fader.fill((0,0,0))
 fader.set_alpha(10)
 
+
 # blink images
-eyeBall = pygame.image.load(f"{blinkDirectory}/000.png")
 blinks = sorted(glob.glob(f"{blinkDirectory}/*.png"))
 blinkIndex = 0
-print(blinks)
 
 # display background images
-images = sorted(glob.glob(f"{imageDirectory}/*.jpg"), key=str.lower)
+images = sorted(glob.glob(f"{backgroundDirectory}/*.jpg"), key=str.lower)
 imageIndex = 0
-print(images)
+
 
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
@@ -126,7 +129,7 @@ def getV4L2( ctrl ) :
         return ""
 
 def getBackground() :
-    # get average background surface
+    # get average camra background surface
     bg = []
     for i in range(0,10): 
         bg.append(cam.get_image(background))
@@ -141,7 +144,7 @@ def getBackground() :
     return
 
 def getdisplayBackground(dir=1) :
-    # background image scaled so that screen is filled, no distortion
+    # background image scaled so that screen is filled with no distortion
     global imageIndex
     imageIndex += dir
     imageIndex = imageIndex % len(images)
@@ -212,9 +215,9 @@ while going:
             print (zoom)
             setV4L2( "zoom_absolute",zoom)
 
-    image = cam.get_image()
+    camImage = cam.get_image()
     #image = pygame.transform.flip(cam.get_image(),True,False)
-    lcd.blit(image, (0,0))
+    lcd.blit(camImage, (0,0))
     lcd.blit(menu1, (0,0))
     pygame.display.flip()
 
@@ -333,18 +336,18 @@ while going:
             alphaBlend = not alphaBlend
             if (alphaBlend) :
                 multiImage = True
-                thresholded.set_alpha(30)
-                thresholded.set_colorkey(None)
+                transparent.set_alpha(30)
+                transparent.set_colorkey(None)
                 diffColor = (0,0,0)
             else:
                 multiImage = False
-                thresholded.set_alpha(None)
+                transparent.set_alpha(None)
                 diffColor = (0,255,0)
-                thresholded.set_colorkey(diffColor)
+                transparent.set_colorkey(diffColor)
 
         if (e.type == KEYUP and e.key == K_SPACE):
             imageCaptured = True
-            capture.blit(thresholded, (0,0))
+            capture.blit(transparent, (0,0))
 
         if (e.type == KEYUP and e.key == K_z):
             getBackground()
@@ -352,11 +355,11 @@ while going:
 
 
     # get camera image
-    image = cam.get_image()
+    cam.get_image(camImage)
 
     # color tracking, two colors/modes
     if (mode1 > 0) :
-        mask = pygame.mask.from_threshold(image, ccolor1, (20,20,20))
+        mask = pygame.mask.from_threshold(camImage, ccolor1, (20,20,20))
         connected = mask.connected_component()
         # fade the current path
         vpath1.blit(fader,(0,0))
@@ -371,7 +374,7 @@ while going:
             lastPos1 = (0,0)
 
     if (mode2 > 0) :
-        mask = pygame.mask.from_threshold(image, ccolor2, (50,50,50))
+        mask = pygame.mask.from_threshold(camImage, ccolor2, (50,50,50))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
         #vpath2.blit(fader,(0,0))
@@ -385,7 +388,7 @@ while going:
             blinkIndex += 1
             blinkIndex = blinkIndex % len(blinks)
             eyeBall = pygame.image.load(blinks[blinkIndex])
-            vpath2.blit(pygame.transform.smoothscale(eyeBall, (diameter, diameter)),trackRect)
+            vpath2.blit(pygame.transform.scale(eyeBall, (diameter, diameter)),trackRect)
             #vpath2.blit(pygame.transform.smoothscale(image, (trackRect.width, trackRect.height)),trackRect)
             #vpath2.fill(ccolor2, trackRect)
         #if lastPos2 == (0,0) :
@@ -414,7 +417,7 @@ while going:
             lcd.fill(backgroundColor)
 
 
-    # background sprites:
+    # background tracks:
     if (mode1 == 2) :
         lcd.blit(vpath1, (0,0))
     if (mode2 == 2) :
@@ -437,13 +440,12 @@ while going:
     #   ...is not the way works when using search_surface
     #   The pixels copied to dest come from search_surf, not from surf
     #
-    #... diffColor, the transparent color -- normally green, but black for alphablend 
-    thresholded.fill(diffColor)
-    #image = pygame.transform.flip(cam.get_image(),True,False)
-    pygame.transform.threshold(thresholded,background,None,(th,th,th),None,2,image,False)
+    #... diffColor, the color key -- normally green, but black for alphablend 
+    transparent.fill(diffColor)
+    pygame.transform.threshold(transparent,background,None,(th,th,th),None,2,camImage,False)
 
     if (outlineImage) :
-        laplace = pygame.transform.laplacian(thresholded)
+        laplace = pygame.transform.laplacian(transparent)
         if backgroundType == 0:
             outlineEdge = (1,1,1)
         elif backgroundType == 1:
@@ -457,14 +459,16 @@ while going:
         #lcd.blit(thresholded, (0,0))
         lcd.blit(outline, (0,0))
     elif (imageInverted) :
+        # so, fill - GREEN == colorkey
         inverted.fill((255,255,255))
-        inverted.blit(thresholded, (0,0), None, BLEND_RGB_SUB)
+        inverted.set_colorkey((255,0,255))
+        inverted.blit(transparent, (0,0), None, BLEND_RGB_SUB)
         lcd.blit(inverted, (0,0))
     else:
-        lcd.blit(thresholded, (0,0))
+        lcd.blit(transparent, (0,0))
         
 
-    # foreground sprites:
+    # foreground tracks:
     if (mode1 == 1) :
         lcd.blit(vpath1, (0,0))
     if (mode2 == 1) :
