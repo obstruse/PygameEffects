@@ -61,37 +61,26 @@ camImage = pygame.surface.Surface(res)
 transparent = pygame.surface.Surface(res)
 transparent.set_colorkey((0,255,0))
 
-# menu surface
-menu1 = pygame.surface.Surface(res)
-menu1.set_colorkey((0,0,0))
-menu1Text = font.render('Set Focus,White Balance,Exposure',True,WHITE)
-menu1TextPos = menu1Text.get_rect(center=(width/2,height/2))
-menu1.blit(menu1Text, menu1TextPos)
-pygame.Rect.inflate_ip(menu1TextPos, 25, 25)
-pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
-
+# inverted transparent camera surface
 inverted = pygame.surface.Surface(res)
 inverted.set_colorkey((255,0,255))
-
-capture = pygame.surface.Surface(res)
-capture.fill((0,255,0))
-capture.set_colorkey((0,255,0))
-imageCaptured = False
 
 # edge detect surface
 outline = pygame.surface.Surface(res)
 outline.set_colorkey((0,0,0))
 
-background = pygame.surface.Surface(res)
-backgroundColor = (0,0,0)
+# green screen surface
+greenscreen = pygame.surface.Surface(res)
+greenscreenColor = (0,0,0)
 
-# tracking surfaces
+# tracking #1 surface
 vpath1 = pygame.surface.Surface(res)
 vpath1.set_colorkey((0,0,0))
 ccolor1 = (0,0,0)
 lastPos1 = (0,0)
 mode1 = 0
 
+# tracking #2 surface
 vpath2 = pygame.surface.Surface(res)
 vpath2.set_colorkey((0,0,0))
 ccolor2 = (0,0,0)
@@ -103,12 +92,26 @@ fader = pygame.surface.Surface(res)
 fader.fill((0,0,0))
 fader.set_alpha(10)
 
+# frozen image surface
+frozen = pygame.surface.Surface(res)
+frozen.fill((0,255,0))
+frozen.set_colorkey((0,255,0))
+imageFrozen = False
+
+# menu surface
+menu1 = pygame.surface.Surface(res)
+menu1.set_colorkey((0,0,0))
+menu1Text = font.render('Set Focus,White Balance,Exposure',True,WHITE)
+menu1TextPos = menu1Text.get_rect(center=(width/2,height/2))
+menu1.blit(menu1Text, menu1TextPos)
+pygame.Rect.inflate_ip(menu1TextPos, 25, 25)
+pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
 
 # blink images
 blinks = sorted(glob.glob(f"{blinkDirectory}/*.png"))
 blinkIndex = 0
 
-# display background images
+# background images
 images = sorted(glob.glob(f"{backgroundDirectory}/*.jpg"), key=str.lower)
 imageIndex = 0
 
@@ -128,18 +131,19 @@ def getV4L2( ctrl ) :
     else :
         return ""
 
-def getBackground() :
-    # get average camra background surface
-    bg = []
+def getGreenscreen() :
+    # green screen is the average of the camera image over several frames
+    # ...not necessarily green, and not necessarily all the same color...
+    gs = []
     for i in range(0,10): 
-        bg.append(cam.get_image(background))
-    pygame.transform.average_surfaces(bg,background)
-    # creates 'background' == average background surface over five frames
+        gs.append(cam.get_image(greenscreen))
+    pygame.transform.average_surfaces(gs,greenscreen)
+    # creates 'greenscreen' == average camera surface over several frames
     
-    # the average color of the average surface. Used for the 'w' background color
-    global backgroundColor 
-    backgroundColor = pygame.transform.average_color(background)
-    print(f"backgroundColor: {backgroundColor}")
+    # the average color of the greenscreen surface. Used for the 'g' background color
+    global greenscreenColor 
+    greenscreenColor = pygame.transform.average_color(greenscreen)
+    print(f"greenscreenColor: {greenscreenColor}")
 
     return
 
@@ -179,14 +183,14 @@ zoom = 100
 timer = pygame.time.Clock()
 
 
-going = True
-while going:
+active = True
+while active:
     events = pygame.event.get()
     for e in events:
         if (e.type == MOUSEBUTTONDOWN):
-            going = False
+            active = False
         if (e.type == KEYUP and e.key == K_SPACE):
-            going = False
+            active = False
 
         if (e.type == KEYUP and e.key == K_e):
             exposure = getV4L2( "exposure_absolute" )
@@ -261,17 +265,15 @@ streamCapture = False
 
 
 # display effects
-going = True
-while going:
+active = True
+while active:
     for e in pygame.event.get():
         if (e.type == MOUSEBUTTONDOWN):
             if pygame.mouse.get_pressed()[2] :
                 streamCapture = not streamCapture
-                print("left button")
             else :
                 pos = pygame.mouse.get_pos()
                 crect.center = pos
-                #ccolor = pygame.transform.average_color(image, crect)
                 ccolor = pygame.transform.average_color(lcd, crect)
                 print (ccolor)
 
@@ -298,12 +300,12 @@ while going:
         if (e.type == KEYUP and e.key == K_c):
             vpath1.fill((0,0,0))
             vpath2.fill((0,0,0))
-            imageCaptured = False
-            capture.fill((0,255,0))
+            imageFrozen = False
+            frozen.fill((0,255,0))
             multiImage = False
 
         if (e.type == KEYDOWN and e.key == K_ESCAPE):
-            going = False
+            active = False
 
         if (e.type == KEYUP and e.key == K_w):
             backgroundType = 0
@@ -314,8 +316,6 @@ while going:
         if (e.type == KEYUP and e.key == K_g):
             backgroundType = 3
 
-
-        # probably should try adjusting each color threshold?
         if (e.type == KEYUP and e.key == K_KP_MINUS):
             if (th > 1) :
                 th -= 1
@@ -346,11 +346,11 @@ while going:
                 transparent.set_colorkey(diffColor)
 
         if (e.type == KEYUP and e.key == K_SPACE):
-            imageCaptured = True
-            capture.blit(transparent, (0,0))
+            imageFrozen = True
+            frozen.blit(transparent, (0,0))
 
         if (e.type == KEYUP and e.key == K_z):
-            getBackground()
+            getGreenscreen()
 
 
 
@@ -383,6 +383,7 @@ while going:
         if connected.count() > 15:
             #coord = connected.centroid()
             trackRect = connected.get_bounding_rects()[0]
+            pygame.Rect.inflate_ip(trackRect,7,7)
             diameter = max(trackRect.width, trackRect.height)
             #print (f"width: {trackRect.width} height: {trackRect.height}")
             blinkIndex += 1
@@ -414,7 +415,7 @@ while going:
             lcd.blit(displayBackground, displayBackgroundRect)
         elif backgroundType == 3:
             # fill with average color of background "g"
-            lcd.fill(backgroundColor)
+            lcd.fill(greenscreenColor)
 
 
     # background tracks:
@@ -425,8 +426,8 @@ while going:
 
 
     # middle: 'snapped' image
-    if (imageCaptured) :
-        lcd.blit(capture, (0,0))
+    if (imageFrozen) :
+        lcd.blit(frozen, (0,0))
 
 
     # camera image layer with transparent background
@@ -442,7 +443,7 @@ while going:
     #
     #... diffColor, the color key -- normally green, but black for alphablend 
     transparent.fill(diffColor)
-    pygame.transform.threshold(transparent,background,None,(th,th,th),None,2,camImage,False)
+    pygame.transform.threshold(transparent,greenscreen,None,(th,th,th),None,2,camImage,False)
 
     if (outlineImage) :
         laplace = pygame.transform.laplacian(transparent)

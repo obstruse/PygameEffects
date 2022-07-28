@@ -25,7 +25,7 @@ Place your foreground object in front of the camera
 - wait a moment for auto-exposure/auto-focus to settle
 - press `space` (or click mouse) to continue
 
-Remove the foreground object from in front of the camera
+Remove the object from in front of the camera
 - press `z` to capture the current image as the **green screen**
 - if lighting changes, re-capture the image
 - use `kp+`/`kp-` to adjust **green screen** threshold if necessary
@@ -43,8 +43,8 @@ Image capture
 - red border will appear on screen during capture
 - maximum frame rate determined by `FPS` setting in `config.ini`
 ---
-![track](images/20220723-130007.gif)
-![eyeball](images/20220723-185833.gif)
+![track](images/20220727-174332.gif)
+![eyeball](images/20220727-170403.gif)
 
 ---
 
