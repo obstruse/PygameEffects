@@ -50,31 +50,27 @@ Image capture
 
 &nbsp;|Keyboard Commands
 -|-
- |
+&nbsp;|&nbsp;
 &nbsp;|**Startup**
- |
 `space`| accept focus, white balance, exposure and continue
 `,` / `.` | zoom in/out
 `up` / `down`| adjust white balance
- |
+&nbsp;|&nbsp;
 &nbsp;|**Tracking**
- | 
 `mouse` | select color
 `kp7` / `kp8` | set color 1 / 2
 `kp1` / `kp2` | cycle through tracking modes: front, back, off
 `c` | clear tracking
- |
+&nbsp;|&nbsp;
 &nbsp;|**Display Background**
- |
 `w` | white
 `b` | black
 `g` | average of green screen
 `i` | image
 `left`/`right`|previous/next background image
 `z` | capture green screen
-|
+&nbsp;|&nbsp;
 &nbsp;|**Processing**
- |
 `o` | outline
 `v` | inverted
 `m` | multiImage
@@ -92,9 +88,8 @@ Program settings can be changed by modifying `config.ini` located in the same di
 
 &nbsp;|Configuration Settings|&nbsp;
 -|-|-
-|
+&nbsp;|&nbsp;
 **Key**|**Description**|**Default**
-|
 width | display width|800
 height | display height|600
 videoDev | video device|/dev/video0
