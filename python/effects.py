@@ -28,9 +28,11 @@ height = config.getint('Effects','height',fallback=600)
 videoDev = config.get('Effects','videoDev',fallback='/dev/video0')
 whiteBalance = config.getint('Effects','whiteBalance',fallback=5500)
 backgroundDirectory = config.get('Effects','backgroundDirectory',fallback='../background')
+backgroundAnimation = config.get('Effects','backgroundAnimation',fallback='clouds-reverse.mp4')
 captureDirectory = config.get('Effects','captureDirectory',fallback='../capture')
 blinkDirectory = config.get('Effects','blinkDirectory',fallback='../blink')
 FPS = config.getint('Effects','FPS',fallback=20)
+fullScreen = config.getboolean('Effects','fullScreen',fallback=False)
 
 pygame.init()
 
@@ -52,9 +54,12 @@ cam.start()
 
 # create surfaces
 # display surface
-lcd = pygame.display.set_mode(res,pygame.FULLSCREEN)
-#lcd = pygame.display.set_mode(res)
-# place to save lcd without the red 'capture' box
+if fullScreen :
+    lcd = pygame.display.set_mode(res,pygame.FULLSCREEN)
+else :
+    lcd = pygame.display.set_mode(res)
+
+# save lcd without the red 'capture' box (when capturing multiImage)
 lcdSave = pygame.surface.Surface(res)
 
 # raw camera surface
@@ -121,8 +126,9 @@ pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
 blinks = sorted(glob.glob(f"{blinkDirectory}/*.png"))
 blinkIndex = 0
 
-# clouds
-clouds = cv2.VideoCapture(f"{backgroundDirectory}/clouds-reverse.mp4")
+# background animation
+cloudSurface = pygame.surface.Surface(res)
+clouds = cv2.VideoCapture(f"{backgroundDirectory}/{backgroundAnimation}")
 
 # background images
 images = sorted(glob.glob(f"{backgroundDirectory}/*.jpg"), key=str.lower)
@@ -178,6 +184,7 @@ def getdisplayBackground(dir=1) :
     scaledImage = pygame.transform.smoothscale(rawImage,(wScaled,hScaled))
     scaledRect  = scaledImage.get_rect(center=(width/2, height/2))
 
+    # the return image can be any size, >= (width,height)
     return scaledImage, scaledRect
 
 
@@ -464,7 +471,8 @@ while active:
                     clouds.set(cv2.CAP_PROP_POS_FRAMES,0)
                     success, cloud = clouds.read()
 
-                pygame.pixelcopy.array_to_surface(displayBackground,np.flip(np.rot90(cv2.resize(cloud,res)[::-1])))
+                pygame.pixelcopy.array_to_surface(cloudSurface,np.flip(np.rot90(cv2.resize(cloud,res)[::-1])))
+                displayBackground = cloudSurface
                 displayBackgroundRect  = displayBackground.get_rect(center=(width/2, height/2))
             
             lcd.blit(displayBackground, displayBackgroundRect)

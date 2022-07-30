@@ -1,4 +1,7 @@
 archive
 background/edit
 blink/edit
-capture
+images/edit
+capture/**
+!capture/*.sh
+test*
