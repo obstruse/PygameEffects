@@ -14,6 +14,9 @@ import glob
 
 from configparser import ConfigParser
 
+import cv2
+import numpy as np
+
 # change to the python directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -49,8 +52,8 @@ cam.start()
 
 # create surfaces
 # display surface
-#lcd = pygame.display.set_mode(res,pygame.FULLSCREEN)
-lcd = pygame.display.set_mode(res)
+lcd = pygame.display.set_mode(res,pygame.FULLSCREEN)
+#lcd = pygame.display.set_mode(res)
 # place to save lcd without the red 'capture' box
 lcdSave = pygame.surface.Surface(res)
 
@@ -87,6 +90,13 @@ ccolor2 = (0,0,0)
 lastPos2 = (0,0)
 mode2 = 0
 
+# tracking #3 surface
+vpath3 = pygame.surface.Surface(res)
+vpath3.set_colorkey((0,0,0))
+ccolor3 = (0,0,0)
+lastPos3 = (0,0)
+mode3 = 0
+
 # fade out surface
 fader = pygame.surface.Surface(res)
 fader.fill((0,0,0))
@@ -111,10 +121,12 @@ pygame.draw.rect(menu1,WHITE, menu1TextPos,3)
 blinks = sorted(glob.glob(f"{blinkDirectory}/*.png"))
 blinkIndex = 0
 
+# clouds
+clouds = cv2.VideoCapture(f"{backgroundDirectory}/clouds-reverse.mp4")
+
 # background images
 images = sorted(glob.glob(f"{backgroundDirectory}/*.jpg"), key=str.lower)
 imageIndex = 0
-
 
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
@@ -262,6 +274,7 @@ alphaBlend = False
 outlineImage = False
 imageInverted = False
 streamCapture = False
+backgroundPlayback = False
 
 
 # display effects
@@ -277,15 +290,32 @@ while active:
                 ccolor = pygame.transform.average_color(lcd, crect)
                 print (ccolor)
 
+        # background
         if (e.type == KEYUP and e.key == K_RIGHT):
             displayBackground, displayBackgroundRect = getdisplayBackground(1)
         if (e.type == KEYUP and e.key == K_LEFT):
             displayBackground, displayBackgroundRect = getdisplayBackground(-1)
 
+        if (e.type == KEYUP and e.key == K_w):
+            backgroundType = 0
+        if (e.type == KEYUP and e.key == K_b):
+            backgroundType = 1
+        if (e.type == KEYUP and e.key == K_i):
+            backgroundType = 2
+            backgroundPlayback = False
+        if (e.type == KEYUP and e.key == K_p):
+            backgroundType = 2
+            backgroundPlayback = True
+        if (e.type == KEYUP and e.key == K_g):
+            backgroundType = 3
+
+        # tracking 
         if (e.type == KEYUP and e.key == K_KP7):
             ccolor1 = ccolor
         if (e.type == KEYUP and e.key == K_KP8):
             ccolor2 = ccolor
+        if (e.type == KEYUP and e.key == K_KP9):
+            ccolor3 = ccolor
 
         if (e.type == KEYUP and e.key == K_KP1):
             mode1 += 1
@@ -297,39 +327,18 @@ while active:
             if (mode2 > 2):
                 mode2 = 0
                 lastPos2 = (0,0)
-        if (e.type == KEYUP and e.key == K_c):
-            vpath1.fill((0,0,0))
-            vpath2.fill((0,0,0))
-            imageFrozen = False
-            frozen.fill((0,255,0))
-            multiImage = False
+        if (e.type == KEYUP and e.key == K_KP3):
+            mode3 += 1
+            if (mode3 > 2):
+                mode3 = 0
+                lastPos3 = (0,0)
 
-        if (e.type == KEYDOWN and e.key == K_ESCAPE):
-            active = False
 
-        if (e.type == KEYUP and e.key == K_w):
-            backgroundType = 0
-        if (e.type == KEYUP and e.key == K_b):
-            backgroundType = 1
-        if (e.type == KEYUP and e.key == K_i):
-            backgroundType = 2
-        if (e.type == KEYUP and e.key == K_g):
-            backgroundType = 3
-
-        if (e.type == KEYUP and e.key == K_KP_MINUS):
-            if (th > 1) :
-                th -= 1
-            print ("TH", th)
-        if (e.type == KEYUP and e.key == K_KP_PLUS):
-            if (th < 255) :
-                th += 1
-            print ("TH", th)
-
+        # image options
         if (e.type == KEYUP and e.key == K_o):
             outlineImage = not outlineImage
         if (e.type == KEYUP and e.key == K_v):
             imageInverted = not imageInverted
-
         if (e.type == KEYUP and e.key == K_m):
             multiImage = not multiImage
         if (e.type == KEYUP and e.key == K_a):
@@ -345,12 +354,40 @@ while active:
                 diffColor = (0,255,0)
                 transparent.set_colorkey(diffColor)
 
+        # freeze copy of camera image on screen
         if (e.type == KEYUP and e.key == K_SPACE):
             imageFrozen = True
             frozen.blit(transparent, (0,0))
 
+        # adjust greenscreen threshold    
+        if (e.type == KEYUP and e.key == K_KP_MINUS):
+            if (th > 1) :
+                th -= 1
+            print ("TH", th)
+        if (e.type == KEYUP and e.key == K_KP_PLUS):
+            if (th < 255) :
+                th += 1
+            print ("TH", th)
+
+        # reset greenscreen
         if (e.type == KEYUP and e.key == K_z):
             getGreenscreen()
+
+        # reset/clear (some) options
+        if (e.type == KEYUP and e.key == K_c):
+            vpath1.fill((0,0,0))
+            vpath2.fill((0,0,0))
+            vpath3.fill((0,0,0))
+            
+            imageFrozen = False
+            frozen.fill((0,255,0))
+            multiImage = False
+
+        # exit
+        if (e.type == KEYDOWN and e.key == K_ESCAPE):
+            active = False
+
+
 
 
 
@@ -374,11 +411,26 @@ while active:
             lastPos1 = (0,0)
 
     if (mode2 > 0) :
-        mask = pygame.mask.from_threshold(camImage, ccolor2, (50,50,50))
+        mask = pygame.mask.from_threshold(camImage, ccolor2, (20,20,20))
+        connected = mask.connected_component()
+        # fade the current path
+        vpath2.blit(fader,(0,0))
+        if connected.count() > 15:
+            coord = connected.centroid()
+            if lastPos2 == (0,0) :
+                lastPos2 = coord
+            else :
+                pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
+                lastPos2 = coord
+        else :
+            lastPos2 = (0,0)
+
+    # eyeball
+    if (mode3 > 0) :
+        mask = pygame.mask.from_threshold(camImage, ccolor3, (50,50,50))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
-        #vpath2.blit(fader,(0,0))
-        vpath2.fill((0,0,0))
+        vpath3.fill((0,0,0))
         #for connected in connectedList :
         if connected.count() > 15:
             #coord = connected.centroid()
@@ -389,18 +441,11 @@ while active:
             blinkIndex += 1
             blinkIndex = blinkIndex % len(blinks)
             eyeBall = pygame.image.load(blinks[blinkIndex])
-            vpath2.blit(pygame.transform.scale(eyeBall, (diameter, diameter)),trackRect)
-            #vpath2.blit(pygame.transform.smoothscale(image, (trackRect.width, trackRect.height)),trackRect)
-            #vpath2.fill(ccolor2, trackRect)
-        #if lastPos2 == (0,0) :
-        #        lastPos2 = coord
-        #    else :
-        #        pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
-        #        lastPos2 = coord
+            vpath3.blit(pygame.transform.scale(eyeBall, (diameter, diameter)),trackRect)
 
 
     # background layer: black, white, or image
-    #... why multiImage check?  Because multiImage means don't reset the background for each frame, just blit the layers on top
+    # MultiImage means don't reset the background for each frame, just blit the layers on top
     #... multiImage is a variation on backgroundType... "accumulate"
     #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
     if ( not multiImage):
@@ -412,6 +457,16 @@ while active:
             lcd.fill(BLACK)
         elif backgroundType == 2:
             # fill with background image "i"
+            if backgroundPlayback :     # background image comes from video playback "p"
+                success, cloud = clouds.read()
+                if not success :
+                    # probably reached the end of the MP4, reset to zero and try again
+                    clouds.set(cv2.CAP_PROP_POS_FRAMES,0)
+                    success, cloud = clouds.read()
+
+                pygame.pixelcopy.array_to_surface(displayBackground,np.flip(np.rot90(cv2.resize(cloud,res)[::-1])))
+                displayBackgroundRect  = displayBackground.get_rect(center=(width/2, height/2))
+            
             lcd.blit(displayBackground, displayBackgroundRect)
         elif backgroundType == 3:
             # fill with average color of background "g"
@@ -435,7 +490,7 @@ while active:
     # pygame.transfrom.threshold(dest_surf, surf, search_color, threshold, set_color, behavior, search_surface, inverse)
     # The documentation doesn't make sense to me:
     #   "If the optional 'search_surf' surface is given, it is used to threshold against rather than the specified 'set_color'."
-    #   ...shouldn't that be threshold against 'search_color' not 'set_color'?
+    #   ...shouldn't that be: "it is used to threshold against rather than the specified 'search_color'?"
     #   "set_behavior=1 (default). Pixels in dest_surface will be changed to 'set_color'."
     #   "set_behavior=2 pixels set in 'dest_surf' will be from 'surf'."
     #   ...is not the way works when using search_surface
