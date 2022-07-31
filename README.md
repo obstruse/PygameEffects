@@ -68,6 +68,7 @@ Image capture
 `g` | average of green screen
 `i` | image
 `left`/`right`|previous/next background image
+`p` | play `backgroundAnimation`
 `z` | capture green screen
 &nbsp;|&nbsp;
 &nbsp;|**Processing**
@@ -77,7 +78,7 @@ Image capture
 `a` | alpha blend
 `space` | freeze image
 `kp+`/`kp-` | threshold
-`right mouse`| capture image sequence
+`right mouse`| capture image sequence/MP4
 
 ---
 

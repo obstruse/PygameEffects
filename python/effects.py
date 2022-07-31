@@ -245,13 +245,13 @@ while active:
     pygame.display.flip()
 
 
-print ("Exposure, manual")
+# Exposure, manual
 if not exposeErr :
     exposure = getV4L2( "exposure_absolute" )
     setV4L2( "exposure_absolute", exposure)
     setV4L2( "exposure_auto",1)
 
-print ("Focus, manual")
+# Focus, manual
 if not focusErr :
     focus = getV4L2( "focus_absolute" )
     setV4L2( "focus_absolute", focus )
@@ -452,9 +452,8 @@ while active:
 
 
     # background layer: black, white, or image
-    # MultiImage means don't reset the background for each frame, just blit the layers on top
-    #... multiImage is a variation on backgroundType... "accumulate"
-    #... and alphablend is a variation of multiImage with the camera image background black non-transparent and alpha set to 30
+    # MultiImage: don't reset the background for each frame, just blit the layers on top
+    # Alphablend: camera image background black, non-transparent. alpha set to 30
     if ( not multiImage):
         if backgroundType == 0:
             # fill with white "w"
@@ -471,7 +470,10 @@ while active:
                     clouds.set(cv2.CAP_PROP_POS_FRAMES,0)
                     success, cloud = clouds.read()
 
-                pygame.pixelcopy.array_to_surface(cloudSurface,np.flip(np.rot90(cv2.resize(cloud,res)[::-1])))
+                # CV2 is H,W,BGR, compared to pygame W,H,RGB
+                # ...so transpose W & H, and flip RGB/BGR
+                # ...np.flip(X,(2)) flips the (2) color axis
+                pygame.pixelcopy.array_to_surface( cloudSurface, np.flip( np.transpose( cv2.resize(cloud,res), (1,0,2) ), (2) ) )
                 displayBackground = cloudSurface
                 displayBackgroundRect  = displayBackground.get_rect(center=(width/2, height/2))
             
@@ -538,25 +540,42 @@ while active:
     if (mode2 == 1) :
         lcd.blit(vpath2, (0,0))
 
+    # display/stream capture
     if not streamCapture and fileDate != "" :
         fileDate = ""
         end = time.time()
         print(f"secs: {(end-start)}, frames: {fileNum}, FPS: {fileNum/(end-start)}")
 
-    # display/stream capture
+        videoOut.release()
+
     if streamCapture :
         if fileDate == "" :
             fileDate = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-            fileNum = 0
-            capturePath = os.path.join( captureDirectory, fileDate)
-            print(f"capturePath {capturePath}")
-            os.mkdir(capturePath)
-            start = time.time()
 
-        fileName = f"{capturePath}/effects{fileDate}-{fileNum:04d}.jpg"
+            # write video instead of frames
+            fourcc = cv2.VideoWriter_fourcc(*'avc1')
+            videoOut = cv2.VideoWriter(f"{captureDirectory}/{fileDate}.mp4",fourcc,FPS,res)
+
+            # write frames instead of video
+            # capturePath = os.path.join( captureDirectory, fileDate)
+            # print(f"capturePath {capturePath}")
+            # os.mkdir(capturePath)
+
+            fileNum = 0
+            start = time.time()
+            
+        # write video
+        # transpose H/W and flip RGB/BGR to get from pygame W,H,RGB to cv2 H,W,BGR
+        videoOut.write( np.flip( np.transpose(  pygame.surfarray.array3d(lcd) ,(1,0,2) ),(2) ) )
+
+        # write frame
+        #fileName = f"{capturePath}/effects{fileDate}-{fileNum:04d}.jpg"
+        #pygame.image.save(lcd, fileName)
+
         fileNum = fileNum + 1
-        pygame.image.save(lcd, fileName)
         timer.tick(FPS)
+
+        # put a red border on display
         lcdSave.blit(lcd, (0,0))
         pygame.draw.rect(lcd,(255,0,0),(0,0, width, height),4)
         pygame.display.flip()
