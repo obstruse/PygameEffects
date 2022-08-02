@@ -1,18 +1,19 @@
 #!/usr/bin/python3
 
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
+#import antigravity
 import pygame
 import pygame.camera
 from pygame.locals import *
-import os
-from PIL import Image
-import PIL.ImageOps
-#import antigravity
 import shlex, subprocess
 import time
 
 import glob
 
 from configparser import ConfigParser
+import argparse
 
 import cv2
 import numpy as np
@@ -20,7 +21,7 @@ import numpy as np
 # change to the python directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-# read config
+# read config file, to override the default (fallback) settings
 config = ConfigParser()
 config.read('config.ini')
 width = config.getint('Effects','width',fallback=800)
@@ -33,6 +34,25 @@ captureDirectory = config.get('Effects','captureDirectory',fallback='../capture'
 blinkDirectory = config.get('Effects','blinkDirectory',fallback='../blink')
 FPS = config.getint('Effects','FPS',fallback=20)
 fullScreen = config.getboolean('Effects','fullScreen',fallback=False)
+captureVideo = config.getboolean('Effects','captureVideo',fallback=True)
+
+# read command line, to override the config file settings
+parser = argparse.ArgumentParser(description='Pygame Effects')
+parser.add_argument('-f','--fullscreen',dest='fullScreen',default=fullScreen,action='store_true')
+parser.add_argument('-w','--window'    ,dest='fullScreen',default=fullScreen,action='store_false')
+parser.add_argument('-v','--video'     ,dest='captureVideo',default=captureVideo,action='store_true')
+parser.add_argument('-i','--images'    ,dest='captureVideo',default=captureVideo,action='store_false')
+parser.add_argument('-x','--width'     ,dest='width',default=width,type=int)
+parser.add_argument('-y','--height'    ,dest='height',default=height,type=int)
+parser.add_argument('--FPS'            ,dest='FPS',default=FPS,type=int)
+
+args = parser.parse_args()
+#print(f"fullScreen: {fullScreen}, args.fullScreen: {args.fullScreen}")
+fullScreen = args.fullScreen
+captureVideo = args.captureVideo
+width = args.width
+height = args.height
+FPS = args.FPS
 
 pygame.init()
 
@@ -137,6 +157,9 @@ imageIndex = 0
 crect = pygame.Rect(0,0,10,10)
 ccolor = (0,0,0)
 
+th = 25
+diffColor = (0,255,0)
+
 
 #utility functions
 def setV4L2( ctrl, value ) :
@@ -198,10 +221,6 @@ focusErr=setV4L2( "focus_auto",1)
 print(f"white balance: {whiteErr}, exposure: {exposeErr}, focus: {focusErr}")
 zoom = 100
 
-# throttle
-timer = pygame.time.Clock()
-
-
 active = True
 while active:
     events = pygame.event.get()
@@ -257,16 +276,8 @@ if not focusErr :
     setV4L2( "focus_absolute", focus )
     setV4L2( "focus_auto", 0)
 
-# get the camera average background surface, and the average color of the average surface
-# also called using 'z' command
-# ... actually I think it better to not do it here, only use 'z' command
-#getBackground()
-
 # display background
 displayBackground, displayBackgroundRect = getdisplayBackground(0)
-
-th = 25
-diffColor = (0,255,0)
 
 # streamCapture
 fileNum = 0
@@ -283,6 +294,8 @@ imageInverted = False
 streamCapture = False
 backgroundPlayback = False
 
+# throttle
+timer = pygame.time.Clock()
 
 # display effects
 active = True
@@ -395,30 +408,40 @@ while active:
             active = False
 
 
-
-
-
     # get camera image
     cam.get_image(camImage)
 
+    # create camera image layer with transparent background
+    #
+    # pygame.transfrom.threshold(dest_surf, surf, search_color, threshold, set_color, behavior, search_surface, inverse)
+    # search_surface compared to surf; if pixel difference is more than threshold, search_surface pixels copied to dest
+    # (the pygame documentation is wrong)
+
+    #... diffColor, the transparent color key -- normally green, but black (non-transparent) for alphablend 
+    transparent.fill(diffColor)
+    pygame.transform.threshold(transparent,greenscreen,None,(th,th,th),None,2,camImage,False)
+
     # color tracking, two colors/modes
+    # track #1
     if (mode1 > 0) :
-        mask = pygame.mask.from_threshold(camImage, ccolor1, (20,20,20))
+        mask = pygame.mask.from_threshold(transparent, ccolor1, (30,30,30))
         connected = mask.connected_component()
         # fade the current path
-        vpath1.blit(fader,(0,0))
+        #vpath1.blit(fader,(0,0))
         if connected.count() > 15:
             coord = connected.centroid()
             if lastPos1 == (0,0) :
                 lastPos1 = coord
             else :
-                pygame.draw.line(vpath1, ccolor1, lastPos1, coord, 5)
+                #pygame.draw.line(vpath1, ccolor1, lastPos1, coord, 5)
+                pygame.draw.line(vpath1, WHITE, lastPos1, coord, 5)
                 lastPos1 = coord
         else :
             lastPos1 = (0,0)
 
+    # track #2
     if (mode2 > 0) :
-        mask = pygame.mask.from_threshold(camImage, ccolor2, (20,20,20))
+        mask = pygame.mask.from_threshold(transparent, ccolor2, (30,30,30))
         connected = mask.connected_component()
         # fade the current path
         vpath2.blit(fader,(0,0))
@@ -427,24 +450,23 @@ while active:
             if lastPos2 == (0,0) :
                 lastPos2 = coord
             else :
-                pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
+                #pygame.draw.line(vpath2, ccolor2, lastPos2, coord, 5)
+                pygame.draw.line(vpath2, WHITE, lastPos2, coord, 5)
                 lastPos2 = coord
         else :
             lastPos2 = (0,0)
 
-    # eyeball
+    # track #3 - eyeball
     if (mode3 > 0) :
-        mask = pygame.mask.from_threshold(camImage, ccolor3, (50,50,50))
+        mask = pygame.mask.from_threshold(transparent, ccolor3, (30,30,30))
         #connectedList = mask.connected_components(minimum=15)
         connected = mask.connected_component()
         vpath3.fill((0,0,0))
         #for connected in connectedList :
         if connected.count() > 15:
-            #coord = connected.centroid()
             trackRect = connected.get_bounding_rects()[0]
             pygame.Rect.inflate_ip(trackRect,7,7)
             diameter = max(trackRect.width, trackRect.height)
-            #print (f"width: {trackRect.width} height: {trackRect.height}")
             blinkIndex += 1
             blinkIndex = blinkIndex % len(blinks)
             eyeBall = pygame.image.load(blinks[blinkIndex])
@@ -463,7 +485,7 @@ while active:
             lcd.fill(BLACK)
         elif backgroundType == 2:
             # fill with background image "i"
-            if backgroundPlayback :     # background image comes from video playback "p"
+            if backgroundPlayback :     # background image comes from MP4 playback "p"
                 success, cloud = clouds.read()
                 if not success :
                     # probably reached the end of the MP4, reset to zero and try again
@@ -488,27 +510,14 @@ while active:
         lcd.blit(vpath1, (0,0))
     if (mode2 == 2) :
         lcd.blit(vpath2, (0,0))
+    if (mode3 == 2) :
+        lcd.blit(vpath3, (0,0))
 
 
     # middle: 'snapped' image
     if (imageFrozen) :
         lcd.blit(frozen, (0,0))
 
-
-    # camera image layer with transparent background
-    #
-    # pygame.transfrom.threshold(dest_surf, surf, search_color, threshold, set_color, behavior, search_surface, inverse)
-    # The documentation doesn't make sense to me:
-    #   "If the optional 'search_surf' surface is given, it is used to threshold against rather than the specified 'set_color'."
-    #   ...shouldn't that be: "it is used to threshold against rather than the specified 'search_color'?"
-    #   "set_behavior=1 (default). Pixels in dest_surface will be changed to 'set_color'."
-    #   "set_behavior=2 pixels set in 'dest_surf' will be from 'surf'."
-    #   ...is not the way works when using search_surface
-    #   The pixels copied to dest come from search_surf, not from surf
-    #
-    #... diffColor, the color key -- normally green, but black for alphablend 
-    transparent.fill(diffColor)
-    pygame.transform.threshold(transparent,greenscreen,None,(th,th,th),None,2,camImage,False)
 
     if (outlineImage) :
         laplace = pygame.transform.laplacian(transparent)
@@ -522,7 +531,6 @@ while active:
         pygame.transform.threshold(outline,laplace, (0,0,0), (40,40,40), outlineEdge, 1)
         #pygame.transform.threshold(outline,image, (0,0,0), (80,80,80), (5,5,5), 1)
         outline.set_colorkey((0,0,0))
-        #lcd.blit(thresholded, (0,0))
         lcd.blit(outline, (0,0))
     elif (imageInverted) :
         # so, fill - GREEN == colorkey
@@ -539,6 +547,8 @@ while active:
         lcd.blit(vpath1, (0,0))
     if (mode2 == 1) :
         lcd.blit(vpath2, (0,0))
+    if (mode3 == 1) :
+        lcd.blit(vpath3, (0,0))
 
     # display/stream capture
     if not streamCapture and fileDate != "" :
@@ -546,31 +556,34 @@ while active:
         end = time.time()
         print(f"secs: {(end-start)}, frames: {fileNum}, FPS: {fileNum/(end-start)}")
 
-        videoOut.release()
+        if captureVideo :
+            videoOut.release()
 
     if streamCapture :
         if fileDate == "" :
             fileDate = time.strftime("%Y%m%d-%H%M%S", time.localtime())
 
-            # write video instead of frames
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')
-            videoOut = cv2.VideoWriter(f"{captureDirectory}/{fileDate}.mp4",fourcc,FPS,res)
-
-            # write frames instead of video
-            # capturePath = os.path.join( captureDirectory, fileDate)
-            # print(f"capturePath {capturePath}")
-            # os.mkdir(capturePath)
+            if captureVideo :
+                # write video frames instead of images
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                videoOut = cv2.VideoWriter(f"{captureDirectory}/{fileDate}.mp4",fourcc,FPS,res)
+            else :
+                # write images instead of video frames
+                capturePath = os.path.join( captureDirectory, fileDate)
+                # print(f"capturePath {capturePath}")
+                os.mkdir(capturePath)
 
             fileNum = 0
             start = time.time()
-            
-        # write video
-        # transpose H/W and flip RGB/BGR to get from pygame W,H,RGB to cv2 H,W,BGR
-        videoOut.write( np.flip( np.transpose(  pygame.surfarray.array3d(lcd) ,(1,0,2) ),(2) ) )
-
-        # write frame
-        #fileName = f"{capturePath}/effects{fileDate}-{fileNum:04d}.jpg"
-        #pygame.image.save(lcd, fileName)
+        
+        if captureVideo :
+            # write video frame
+            # transpose H/W and flip RGB/BGR to get from pygame W,H,RGB to cv2 H,W,BGR
+            videoOut.write( np.flip( np.transpose(  pygame.surfarray.array3d(lcd) ,(1,0,2) ),(2) ) )
+        else :
+            # write image
+            fileName = f"{capturePath}/effects{fileDate}-{fileNum:04d}.jpg"
+            pygame.image.save(lcd, fileName)
 
         fileNum = fileNum + 1
         timer.tick(FPS)
@@ -584,8 +597,5 @@ while active:
         pygame.display.flip()
 
 cam.stop()
-# set exposure, focus, white balance
-#subprocess.call(shlex.split('uvcdynctrl --set="White Balance Temperature, Auto" 1'))
-#subprocess.call(shlex.split('uvcdynctrl --set="Exposure, Auto" 3'))
-#subprocess.call(shlex.split('uvcdynctrl --set="Focus, Auto" 1'))
+
 

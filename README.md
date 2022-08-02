@@ -100,4 +100,26 @@ captureDirectory | directory for capatured images|../capture
 blinkDirectory | directory for _blink_ images|../blink
 FPS | maximum FPS during image capture|20
 
+---
+
+## Command Line
+
+Change program settings from the command line
+
+&nbsp;|Command-Line Options
+-|-
+&nbsp;|&nbsp;
+**Option**|**Description**|**Default**
+`-h`, `--help`|show this help message and exit
+`-f`, `--fullscreen`| display fullscreen
+`-w`, `--window`| display windowed
+`-v`, `--video`| capture MP4
+`-i`, `--images`| capture individual images
+`-x WIDTH`, `--width WIDTH`| display width
+`-y HEIGHT`, `--height HEIGHT`| display height
+`--FPS FPS`| Frames Per Second for capture
+
+---
+
+![clouds](images/20220801-184706.gif)
 
